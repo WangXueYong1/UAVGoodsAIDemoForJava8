@@ -44,6 +44,11 @@ public class Main {
 
 	static int[][][][][] pathA;
 
+	
+	/*
+	 * 接收服务器发送的数据
+	 * 
+	 */
 	public static String readFromServer(BufferedReader bufferedReader) throws IOException {
 		String info = "";
 		char[] buff = new char[1024];
@@ -65,7 +70,10 @@ public class Main {
 		// System.out.println("服务器：" + length_str + info);
 		return info;
 	}
-
+	/*
+	 * 向服务器发送数据
+	 * 
+	 */
 	public static String sendData(Object object, PrintWriter printWriter) {
 		String data_str = gson.toJson(object);
 		String lengthOfJSON = String.format("%08d", data_str.length());
@@ -76,8 +84,12 @@ public class Main {
 		return lengthOfJSON + data_str;
 	}
 
-	// 入口函数
+	/*
+	 * 主函数
+	 * 入口函数
+	 */ 
 	public static void main(String args[]) throws Exception {
+		//本地测试直接运行时填写对应IP和接口
 		if (args == null || args.length != 3) {
 			args = new String[3];
 			args[0] = "39.105.71.189";
@@ -93,22 +105,33 @@ public class Main {
 			InputStream inputStream = socket.getInputStream();// 获取一个输入流，接收服务端的信息
 			InputStreamReader inputStreamReader = new InputStreamReader(inputStream);// 包装成字符流，提高效率
 			BufferedReader bufferedReader = new BufferedReader(inputStreamReader);// 缓冲区
-
+			
+			//接受服务器数据
 			readFromServer(bufferedReader);
-			String token = authToken;
+			String token = authToken;//令牌
+			
 			// 根据输入输出流和服务端连接
 			OutputStream outputStream = socket.getOutputStream();// 获取一个输出流，向服务端发送信息
 			PrintWriter printWriter = new PrintWriter(outputStream);// 将输出流包装成打印流
+			
 			// 发送消息1 2.2 选手向裁判服务器表明身份(Player -> Judger)
 			ShowIdentity showIdentity = new ShowIdentity(token, "sendtoken");
 			sendData(showIdentity, printWriter);
+			
 			// 接受服务器消息2 2.3 身份验证结果(Judger -> Player)
 			String temp = readFromServer(bufferedReader);
 			Authentication authentication = JSONObject.parseObject(temp, Authentication.class);
+			
 			// 发送消息2 2.3.1 选手向裁判服务器表明自己已准备就绪(Player -> Judger)
 			ShowIdentity showIdentity2 = new ShowIdentity(token, "ready");
+			
+			//向服务器发送信息
 			sendData(showIdentity2, printWriter);
+			
+			//最主要的一个函数，包含大部分策略
 			test(bufferedReader, printWriter);
+			
+			//对战结束，断开服务器连接
 			bufferedReader.close();
 			inputStreamReader.close();
 			printWriter.close();
@@ -126,29 +149,54 @@ public class Main {
 		String action = "";
 		String token = jsonObj.getString("token");
 		JSONObject mapSize;// 地图x方向长度
-		int[][] h_low_high_bildingHight = new int[2][];
+		int[][] h_low_high_bildingHight = new int[2][];//建筑物高度数组
 		JSONObject jsonObjmap = jsonObj.getJSONObject("map");
-		ArrayList<UAV_Pro> uav_ProList = new ArrayList<UAV_Pro>();
-		ArrayList<UAV_price> uav_priceList = new ArrayList<UAV_price>();
+		ArrayList<UAV_Pro> uav_ProList = new ArrayList<UAV_Pro>();//我方无人机集合
+		ArrayList<UAV_price> uav_priceList = new ArrayList<UAV_price>();//无人机价格信息
+		
+		//初始化地图
 		char[][][] map = initialization(jsonObjmap, park, h_low_high_bildingHight, uav_priceList, uav_ProList);
+		
+		//用来存放某点（坐标为pathA[][]）到地图上其他点的最短路径
 		pathA = new int[map[0].length][map[0][0].length][][][];
+		
+		//建筑物高度数组
 		int[] h_low_high = h_low_high_bildingHight[0];
+		
+		//建筑物最低高度
 		h_low = h_low_high[0];
+		
+		//建筑物最高高度
 		h_high = Math.min(h_low_high[1], map.length - 1);
 		int[] bildingHight = h_low_high_bildingHight[1];
+		
+		//建筑物层数和在数组中序号的对应关系
 		htoc = htoc(bildingHight, h_high);
+		
+		//对战中当前时间
 		int time = 0;
+		
+		//初始化无人机价格信息
 		int[] UAV_priceArr = new int[uav_priceList.size()];
 		for (int i = 0; i < uav_priceList.size(); i++) {
 			UAV_priceArr[i] = uav_priceList.get(i).value;
 		}
+		
+		//无人机价格排序的序号
 		int[] uav_priceSotNum = sortNum(UAV_priceArr);
 		for (int i = 0; i < uav_ProList.size(); i++) {
 			uav_ProList.get(i).nextStep = new Point3(park.getX(), park.getY(), 0);
 		}
+		//货物信息
 		ArrayList<Goods> goods = new ArrayList<Goods>();
+		
+		//发送下一步我方飞机信息给服务器
 		sendStep(0, 0, uav_ProList, uav_priceList, uav_priceSotNum, printWriter, token);
+		
+		//初始的飞机数量
 		inintUavSize = uav_ProList.size();
+		
+		//找到地图上在雾区的几个点，用来停靠飞机
 		// someFogPoint(map, bildingHight);
 		fogPList = new ArrayList<Point3>();
 		int aaaa1 = (map[0].length - 1) / 4;
@@ -168,6 +216,7 @@ public class Main {
 			}
 		}
 		while (true) {
+			//完成和服务器初始的信息交换之后，正式开始和对手每一步对战
 			int stat = nextTime(uav_ProList, bildingHight, htoc, map, uav_priceList, uav_priceSotNum, bufferedReader,
 					printWriter);
 			if (stat == 1) {
@@ -176,28 +225,53 @@ public class Main {
 		}
 	}
 
+	/**
+	 * 对战中每一步要执行的函数，接收信息，计算我方无人机下一步内容，发送给服务器
+	 * @param uav_ProList
+	 * @param high
+	 * @param htoc
+	 * @param map
+	 * @param uav_priceList
+	 * @param UAV_priceSotNum
+	 * @param bufferedReader
+	 * @param printWriter
+	 * @return
+	 * @throws Exception
+	 */
 	public static int nextTime(ArrayList<UAV_Pro> uav_ProList, int[] high, int[] htoc, char[][][] map,
 			ArrayList<UAV_price> uav_priceList, int[] UAV_priceSotNum, BufferedReader bufferedReader,
 			PrintWriter printWriter) throws Exception {
 		System.out.println(time);
+		//接收服务器发过来的上一步结果
 		String step = readFromServer(bufferedReader);
+		//json数据解析
 		StepObj jsonObj = (StepObj) JSONObject.parseObject(step, StepObj.class);
+		//令牌
 		String token = jsonObj.token;
+		//对战状态
 		int match_status = (Integer) jsonObj.match_status;
-		if (match_status == 1) {
+		if (match_status == 1) {//如果状态是1，返回1用来结束对战
 			return 1;
 		}
+		//对战时间
 		time = (Integer) jsonObj.time;
+		//我方价值
 		we_value = jsonObj.we_value;
+		//敌方价值
 		enemy_value = jsonObj.enemy_value;
+		//货物信息
 		ArrayList<Goods> goods = (ArrayList<Goods>) jsonObj.goods;
+		//我方无人机信息
 		ArrayList<UAV_we> uav_we = (ArrayList<UAV_we>) jsonObj.UAV_we;
 		ArrayList<UAV_enemy> uav_enemy = (ArrayList<UAV_enemy>) jsonObj.UAV_enemy;
 		if (time == 107) {
 			int aaaaa = 0;
 		}
+		//初始化（该步和敌方相关）
 		stepInit2(map, goods, uav_priceList, uav_enemy);
+		//初始化货物状态
 		goodproInit(map, goods, high);
+		//初始化（该步和我方相关）
 		stepInit(uav_ProList, uav_priceList, uav_we);
 		int uavValueSum = we_value;
 		for (int i = 0; i < uav_ProList.size(); i++) {
@@ -207,21 +281,31 @@ public class Main {
 		for (int i = 0; i < uav_enemy_proList.size(); i++) {
 			uav_enemyValueSum += uav_enemy_proList.get(i).value;
 		}
+		//分配攻击飞机
 		distributeAttack(uav_ProList);
 		// deleteSomeGoods(uav_ProList, goodpros);
+		//给攻击飞机分配目标
 		distribtEnemy(uav_ProList, high, map);
-		
+
+		//分配货运飞机货物
 		distribtGoods(uav_ProList, high, map, time);
 //		for (int i = 0; i < uav_ProList.size(); i++) {
 //			if (i>6) {
 //				uav_ProList.remove(i);i--;
 //			}
 //		}
+		//分配各个飞机下一步地点
 		distributeNextStep(uav_ProList, htoc, map, high);
+		//充电监测策略
 		electricityManage(uav_ProList);
 		printMessage(uav_ProList);
+		//发送该步结果给服务器
 		sendStep(uavValueSum, uav_enemyValueSum, uav_ProList, uav_priceList, UAV_priceSotNum, printWriter, token);
+
+		//给敌方匹配可能的货物
 		enemy_getGood(high, map, time);
+
+		//更新货物信息
 		getGood(uav_ProList, high, map, time);
 		// foecastNNStep(map, high);
 		return 0;
@@ -242,7 +326,10 @@ public class Main {
 			System.out.println(uav_enemy_proList.get(i).uav.no + ": v:" + uav_enemy_proList.get(i).value);
 		}
 	}
-
+	
+   /**
+    * 充电策略
+    */
 	private static void electricityManage(ArrayList<UAV_Pro> uav_ProList) {
 		for (int i = 0; i < uav_ProList.size(); i++) {
 			if (uav_ProList.get(i).uav.remain_electricity >= uav_ProList.get(i).capacity) {
@@ -272,6 +359,9 @@ public class Main {
 		}
 	}
 
+	/*
+	 * 给攻击飞机分配攻击目标
+	 */
 	private static void distributeAttack(ArrayList<UAV_Pro> uav_ProList) {
 		int goodUavNum = 0;
 		for (int i = 0; i < uav_ProList.size(); i++) {
